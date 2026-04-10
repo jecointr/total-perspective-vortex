@@ -3,7 +3,7 @@ import numpy as np
 from mne.datasets import eegbci
 from mne.io import concatenate_raws
 
-def load_and_epoch_data(subject, runs, tmin=-1.0, tmax=4.0):
+def load_and_epoch_data(subject, runs, tmin=-1.0, tmax=4.0, use_wavelet=False):
     """
     Charge, filtre et découpe les données EEG pour un sujet donné.
     
@@ -28,7 +28,15 @@ def load_and_epoch_data(subject, runs, tmin=-1.0, tmax=4.0):
 
     # 2. Filtrage spatial et fréquentiel (V.1.1)
     # On isole les fréquences liées au mouvement (rythmes Mu et Beta)
-    raw.filter(8., 35., fir_design='firwin', skip_by_annotation='edge')
+    if use_wavelet:
+        from wavelet_preprocessing import wavelet_bandpass
+        annotations = raw.annotations
+        raw_data = raw.get_data()
+        filtered_data = wavelet_bandpass(raw_data, sfreq=raw.info['sfreq'])
+        raw = mne.io.RawArray(filtered_data, raw.info)
+        raw.set_annotations(annotations)
+    else:
+        raw.filter(8., 35., fir_design='firwin', skip_by_annotation='edge')
 
     # 3. Extraction des événements
     # T0 (repos), T1 (action/imagination gauche), T2 (action/imagination droite)

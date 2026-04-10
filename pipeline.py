@@ -1,7 +1,7 @@
 import joblib
 import numpy as np
 from sklearn.pipeline import Pipeline
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+from custom_lda import CustomLDA
 from sklearn.model_selection import StratifiedKFold, cross_val_score
 
 from preprocessing import load_and_epoch_data
@@ -10,7 +10,7 @@ from model import CustomCSP
 def create_bci_pipeline(n_components=4):
     return Pipeline([
         ('csp', CustomCSP(n_components=n_components)),
-        ('classifier', LinearDiscriminantAnalysis())
+        ('classifier', CustomLDA())
     ])
 
 def evaluate_subject(subject, runs, n_components=4):
@@ -24,6 +24,17 @@ def evaluate_subject(subject, runs, n_components=4):
     except Exception as e:
         # Certains fichiers PhysioNet sont parfois corrompus ou manquants
         return None
+
+def evaluate_with_data(X, y, n_components=4):
+    """ Évaluation en cross-validation sur des données pré-chargées (pour datasets alternatifs) """
+    try:
+        pipe = create_bci_pipeline(n_components)
+        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+        scores = cross_val_score(pipe, X, y, cv=cv, n_jobs=-1)
+        return np.mean(scores)
+    except Exception:
+        return None
+
 
 def train_and_save(subject, target_run, all_runs, output_filename="bci_model.pkl"):
     """

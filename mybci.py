@@ -3,6 +3,7 @@ import time
 import numpy as np
 import joblib
 from preprocessing import load_and_epoch_data
+from dataset_loader import load_dataset, get_n_subjects
 import pipeline
 
 MODEL_FILENAME = "bci_model.pkl"
@@ -24,28 +25,59 @@ def get_experiment_group(run_id):
             return group
     return [run_id]
 
-def global_evaluation():
-    """ 
-    Calcule la 'Mean accuracy' sur les 109 sujets pour les 6 expériences.
-    Répond à la contrainte de l'énoncé.
+def parse_args(argv):
+    """Parse les arguments CLI en extrayant le flag --dataset."""
+    dataset = "physionet"
+    args = list(argv[1:])
+
+    if "--dataset" in args:
+        idx = args.index("--dataset")
+        dataset = args[idx + 1]
+        args.pop(idx)  # --dataset
+        args.pop(idx)  # valeur
+
+    return dataset, args
+
+def global_evaluation(dataset="physionet"):
     """
-    print("Démarrage de l'évaluation globale (109 sujets, 6 expériences)...")
-    total_accs = []
-    
-    for exp_id in range(6):
-        runs = EXPERIMENTS[exp_id]
-        exp_scores = []
-        for sub in range(1, 110):
-            score = pipeline.evaluate_subject(sub, runs)
-            if score is not None:
-                exp_scores.append(score)
-        
-        mean_exp = np.mean(exp_scores) if exp_scores else 0
-        total_accs.append(mean_exp)
-        print(f"experiment {exp_id}: accuracy = {mean_exp:.4f}")
-    
-    print("-" * 30)
-    print(f"Mean accuracy of 6 experiments: {np.mean(total_accs):.4f}")
+    Calcule la 'Mean accuracy' sur tous les sujets pour les expériences disponibles.
+    """
+    n_subjects = get_n_subjects(dataset)
+
+    if dataset == "physionet":
+        print(f"Évaluation globale ({n_subjects} sujets, 6 expériences, dataset: {dataset})...")
+        total_accs = []
+
+        for exp_id in range(6):
+            runs = EXPERIMENTS[exp_id]
+            exp_scores = []
+            for sub in range(1, n_subjects + 1):
+                score = pipeline.evaluate_subject(sub, runs)
+                if score is not None:
+                    exp_scores.append(score)
+
+            mean_exp = np.mean(exp_scores) if exp_scores else 0
+            total_accs.append(mean_exp)
+            print(f"experiment {exp_id}: accuracy = {mean_exp:.4f}")
+
+        print("-" * 30)
+        print(f"Mean accuracy of 6 experiments: {np.mean(total_accs):.4f}")
+    else:
+        print(f"Évaluation globale ({n_subjects} sujets, dataset: {dataset})...")
+        scores = []
+        for sub in range(1, n_subjects + 1):
+            try:
+                X, y = load_dataset(dataset, sub)
+                score = pipeline.evaluate_with_data(X, y)
+                if score is not None:
+                    scores.append(score)
+                    print(f"subject {sub:03d}: accuracy = {score:.4f}")
+            except Exception as e:
+                print(f"subject {sub:03d}: erreur - {e}")
+
+        if scores:
+            print("-" * 30)
+            print(f"Mean accuracy ({dataset}): {np.mean(scores):.4f}")
 
 def simulate_data_stream(subject, run):
     """ Flux temps réel < 2s """
@@ -63,29 +95,29 @@ def simulate_data_stream(subject, run):
         start = time.time()
         pred = model.predict(chunk)[0]
         duration = time.time() - start
-        
+
         if duration > 2.0: print(f"LATE: {duration:.2f}s")
-        
+
         is_correct = (pred == y[i])
         if is_correct: correct += 1
         print(f"epoch {i:02d}: [{pred+1}] [{y[i]+1}] {is_correct}")
         time.sleep(0.05)
-        
+
     print(f"Accuracy: {correct/len(y):.4f}")
 
 if __name__ == "__main__":
-    if len(sys.argv) == 1:
-        global_evaluation()
-    elif len(sys.argv) == 4:
-        sub, run, mode = int(sys.argv[1]), int(sys.argv[2]), sys.argv[3].lower()
+    dataset, args = parse_args(sys.argv)
+
+    if len(args) == 0:
+        global_evaluation(dataset)
+    elif len(args) == 3:
+        sub, run, mode = int(args[0]), int(args[1]), args[2].lower()
         if mode == "train":
             group = get_experiment_group(run)
-            # On passe le groupe pour que train_and_save puisse exclure le run cible
             pipeline.train_and_save(sub, run, group, MODEL_FILENAME)
-            # Affichage du score de validation (V.1.4)
             acc = pipeline.evaluate_subject(sub, group)
             print(f"cross_val_score: {acc:.4f}")
         elif mode == "predict":
             simulate_data_stream(sub, run)
     else:
-        print("Usage: python mybci.py <subject> <run> <train|predict>")
+        print("Usage: python mybci.py [--dataset physionet|bnci2014] <subject> <run> <train|predict>")
